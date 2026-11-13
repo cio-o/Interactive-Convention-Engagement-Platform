@@ -1,0 +1,536 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Get a free hosted Postgres database in seconds: `npx create-db`
+
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+
+
+// --------------------------------------------------------------------
+//  ENUM
+// --------------------------------------------------------------------
+enum UserRole {
+  ORGANIZER
+  EXHIBITOR
+  ATTENDEE
+}
+
+enum EventStatus {
+  DRAFT
+  PUBLISHED
+  CANCELLED
+  COMPLETED
+}
+
+enum RegistrationStatus {
+  CONFIRMED
+  CANCELLED
+  WAITLISTED
+}
+
+enum PaymentStatus {
+  NOT_REQUIRED
+  PENDING
+  PAID
+  FAILED
+  REFUNDED
+}
+
+enum BoothStatus {
+  AVAILABLE
+  ASSIGNED
+  INACTIVE
+}
+
+enum ActivityType {
+  QR_CHECK_IN
+  QUIZ
+  PHOTO_CHALLENGE
+  TASK
+}
+
+enum ActivityStatus {
+  DRAFT
+  ACTIVE
+  INACTIVE
+}
+
+enum ParticipationStatus {
+  STARTED
+  PENDING_VERIFICATION
+  COMPLETED
+  REJECTED
+}
+
+enum ScavengerHuntStatus {
+  DRAFT
+  ACTIVE
+  COMPLETED
+  CANCELLED
+}
+
+enum ChallengeType {
+  PHOTO
+  QR_SCAN
+  QUESTION
+  TASK
+}
+
+enum SubmissionStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum PointSource {
+  BOOTH_VISIT
+  ACTIVITY
+  SCAVENGER_CHALLENGE
+  BONUS
+  ADJUSTMENT
+}
+
+enum NotificationType {
+  EVENT_UPDATE
+  EVENT_REMINDER
+  EXHIBITOR_UPDATE
+  ACHIEVEMENT
+  ANNOUNCEMENT
+  SYSTEM
+}
+
+enum ExhibitorStatus {
+  PENDING
+  ACTIVE
+  REJECTED
+  WITHDRAWN
+}
+
+
+// --------------------------------------------------------------------
+// USER
+// --------------------------------------------------------------------
+model User {
+  id        String   @id @db.Uuid
+  email     String   @unique
+  firstName String?
+  lastName  String?
+  role      UserRole
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organizedEvents Event[] @relation("EventOrganizer")
+  exhibitorEvents EventExhibitor[]
+  registrations          EventRegistration[]
+  boothVisits            BoothVisit[]
+  activityParticipations ActivityParticipation[]
+  scavengerSubmissions   ScavengerSubmission[]
+  pointTransactions      PointTransaction[]
+  userAchievements UserAchievement[]
+  favoriteExhibitors FavoriteExhibitor[] @relation("AttendeeFavorites")
+  favoritedBy        FavoriteExhibitor[] @relation("ExhibitorFavorites")
+  notifications Notification[]
+}
+
+
+
+// --------------------------------------------------------------------
+// EVENT
+// --------------------------------------------------------------------
+model Event {
+  id          String @id @default(uuid()) @db.Uuid
+  organizerId String @db.Uuid
+
+  name        String
+  description String? @db.Text
+  venue       String?
+
+  startDate DateTime @db.Timestamptz(6)
+  endDate   DateTime @db.Timestamptz(6)
+
+  capacity Int?
+
+  status EventStatus @default(DRAFT)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organizer User @relation("EventOrganizer", fields: [organizerId], references: [id])
+  registrations     EventRegistration[]
+  exhibitors        EventExhibitor[]
+  booths            Booth[]
+  scavengerHunts    ScavengerHunt[]
+  pointTransactions PointTransaction[]
+  achievements      Achievement[]
+
+  @@index([organizerId])
+  @@index([status])
+}
+
+
+
+// --------------------------------------------------------------------
+// EVENT REGISTRATION
+// --------------------------------------------------------------------
+model EventRegistration {
+  id         String @id @default(uuid()) @db.Uuid
+  attendeeId String @db.Uuid
+  eventId    String @db.Uuid
+
+  status        RegistrationStatus @default(CONFIRMED)
+  paymentStatus PaymentStatus      @default(NOT_REQUIRED)
+
+  registeredAt DateTime  @default(now())
+  confirmedAt  DateTime?
+
+  attendee User  @relation(fields: [attendeeId], references: [id])
+  event    Event @relation(fields: [eventId], references: [id])
+
+  @@unique([attendeeId, eventId])
+  @@index([eventId, status])
+}
+
+
+
+// --------------------------------------------------------------------
+// EVENT EXHIBITOR
+// --------------------------------------------------------------------
+model EventExhibitor {
+  id          String @id @default(uuid()) @db.Uuid
+  eventId     String @db.Uuid
+  exhibitorId String @db.Uuid
+
+  status   ExhibitorStatus @default(PENDING)
+  joinedAt DateTime        @default(now())
+
+  event     Event @relation(fields: [eventId], references: [id])
+  exhibitor User  @relation(fields: [exhibitorId], references: [id])
+
+  assignedBooth Booth?
+
+  @@unique([eventId, exhibitorId])
+  @@index([exhibitorId])
+}
+
+
+
+// --------------------------------------------------------------------
+// BOOTH
+// --------------------------------------------------------------------
+model Booth {
+  id               String  @id @default(uuid()) @db.Uuid
+  eventId          String  @db.Uuid
+  eventExhibitorId String? @unique @db.Uuid
+
+  boothNumber String
+  name        String
+  description String? @db.Text
+  location    String?
+
+  status BoothStatus @default(AVAILABLE)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  event Event @relation(fields: [eventId], references: [id])
+  eventExhibitor EventExhibitor? @relation(fields: [eventExhibitorId], references: [id])
+  activities Activity[]
+  visits     BoothVisit[]
+
+  @@unique([eventId, boothNumber])
+  @@index([eventExhibitorId])
+}
+
+
+
+// --------------------------------------------------------------------
+// ACTIVITY
+// --------------------------------------------------------------------
+model Activity {
+  id      String @id @default(uuid()) @db.Uuid
+  boothId String @db.Uuid
+
+  title        String
+  description  String? @db.Text
+  instructions String? @db.Text
+
+  points Int @default(0)
+
+  type   ActivityType
+  status ActivityStatus @default(DRAFT)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  booth Booth @relation(fields: [boothId], references: [id])
+  participations ActivityParticipation[]
+
+  @@index([boothId])
+  @@index([status])
+}
+
+
+
+// --------------------------------------------------------------------
+// BOOTH VISIT
+// --------------------------------------------------------------------
+model BoothVisit {
+  id         String @id @default(uuid()) @db.Uuid
+  attendeeId String @db.Uuid
+  boothId    String @db.Uuid
+
+  scannedAt     DateTime @default(now())
+  pointsAwarded Int      @default(0)
+
+  attendee User  @relation(fields: [attendeeId], references: [id])
+  booth    Booth @relation(fields: [boothId], references: [id])
+
+  @@unique([attendeeId, boothId])
+  @@index([boothId])
+}
+
+
+
+// --------------------------------------------------------------------
+// ACTIVITY PARTICIPATION
+// --------------------------------------------------------------------
+model ActivityParticipation {
+  id         String @id @default(uuid()) @db.Uuid
+  attendeeId String @db.Uuid
+  activityId String @db.Uuid
+
+  status        ParticipationStatus @default(STARTED)
+  pointsAwarded Int                 @default(0)
+
+  completedAt DateTime?
+  createdAt   DateTime  @default(now())
+
+  attendee         User              @relation(fields: [attendeeId], references: [id])
+  activity         Activity          @relation(fields: [activityId], references: [id])
+  activityAttempts ActivityAttempt[]
+
+  @@unique([attendeeId, activityId])
+  @@index([activityId, status])
+}
+
+
+
+// --------------------------------------------------------------------
+// ACTIVITY ATTEMPT
+// --------------------------------------------------------------------
+model ActivityAttempt {
+  id              String @id @default(uuid()) @db.Uuid
+  participationId String @db.Uuid
+
+  attemptNumber Int
+
+  status ParticipationStatus @default(STARTED)
+
+  submittedAt DateTime  @default(now())
+  reviewedAt  DateTime?
+
+  participation ActivityParticipation @relation(fields: [participationId], references: [id])
+
+  @@unique([participationId, attemptNumber])
+  @@index([participationId, status])
+}
+
+
+
+// --------------------------------------------------------------------
+// SCAVENGER HUNT
+// --------------------------------------------------------------------
+model ScavengerHunt {
+  id      String @id @default(uuid()) @db.Uuid
+  eventId String @db.Uuid
+
+  title       String
+  description String? @db.Text
+
+  startDate DateTime?
+  endDate   DateTime?
+
+  status ScavengerHuntStatus @default(DRAFT)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  event      Event                @relation(fields: [eventId], references: [id])
+  challenges ScavengerChallenge[]
+
+  @@index([eventId])
+}
+
+
+
+// --------------------------------------------------------------------
+// SCAVENGER CHALLENGE
+// --------------------------------------------------------------------
+model ScavengerChallenge {
+  id     String @id @default(uuid()) @db.Uuid
+  huntId String @db.Uuid
+
+  title        String
+  description  String? @db.Text
+  instructions String? @db.Text
+
+  type   ChallengeType
+  points Int           @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  hunt        ScavengerHunt         @relation(fields: [huntId], references: [id])
+  submissions ScavengerSubmission[]
+
+  @@index([huntId])
+}
+
+
+
+// --------------------------------------------------------------------
+// SCAVENGER SUBMISSION
+// --------------------------------------------------------------------
+model ScavengerSubmission {
+  id          String @id @default(uuid()) @db.Uuid
+  challengeId String @db.Uuid
+  attendeeId  String @db.Uuid
+
+  submissionUrl String?
+  answer        String? @db.Text
+
+  status SubmissionStatus @default(PENDING)
+
+  submittedAt DateTime  @default(now())
+  reviewedAt  DateTime?
+
+  challenge ScavengerChallenge @relation(fields: [challengeId], references: [id])
+  attendee  User               @relation(fields: [attendeeId], references: [id])
+
+  @@unique([challengeId, attendeeId])
+  @@index([attendeeId])
+  @@index([challengeId, status])
+}
+
+
+
+// --------------------------------------------------------------------
+// POINT TRANSACTION
+// --------------------------------------------------------------------
+model PointTransaction {
+  id         String @id @default(uuid()) @db.Uuid
+  attendeeId String @db.Uuid
+  eventId    String @db.Uuid
+
+  points Int
+  source PointSource
+
+  sourceId       String? @db.Uuid
+  idempotencyKey String  @unique
+
+  description String?
+
+  createdAt DateTime @default(now())
+
+  attendee User  @relation(fields: [attendeeId], references: [id])
+  event    Event @relation(fields: [eventId], references: [id])
+
+  @@index([eventId, attendeeId])
+  @@index([eventId, createdAt])
+}
+
+
+
+// --------------------------------------------------------------------
+// ACHIEVEMENT
+// --------------------------------------------------------------------
+model Achievement {
+  id      String  @id @default(uuid()) @db.Uuid
+  eventId String? @db.Uuid
+
+  name        String
+  description String? @db.Text
+  icon        String?
+
+  pointsRequired Int @default(0)
+
+  createdAt DateTime @default(now())
+
+  event Event? @relation(fields: [eventId], references: [id])
+
+  userAchievements UserAchievement[]
+
+  @@index([eventId])
+}
+
+
+
+// --------------------------------------------------------------------
+// USER ACHIEVEMENT
+// --------------------------------------------------------------------
+model UserAchievement {
+  id            String @id @default(uuid()) @db.Uuid
+  userId        String @db.Uuid
+  achievementId String @db.Uuid
+
+  earnedAt DateTime @default(now())
+
+  user        User        @relation(fields: [userId], references: [id])
+  achievement Achievement @relation(fields: [achievementId], references: [id])
+
+  @@unique([userId, achievementId])
+  @@index([userId])
+}
+
+
+
+// --------------------------------------------------------------------
+// FAVORITE EXHIBITOR
+// --------------------------------------------------------------------
+model FavoriteExhibitor {
+  id          String @id @default(uuid()) @db.Uuid
+  attendeeId  String @db.Uuid
+  exhibitorId String @db.Uuid
+
+  createdAt DateTime @default(now())
+
+  attendee User @relation("AttendeeFavorites", fields: [attendeeId], references: [id])
+  exhibitor User @relation("ExhibitorFavorites", fields: [exhibitorId], references: [id])
+
+  @@unique([attendeeId, exhibitorId])
+  @@index([exhibitorId])
+}
+
+
+
+// --------------------------------------------------------------------
+// NOTIFICATION
+// --------------------------------------------------------------------
+model Notification {
+  id     String @id @default(uuid()) @db.Uuid
+  userId String @db.Uuid
+
+  title   String
+  message String @db.Text
+
+  type NotificationType
+
+  isRead Boolean @default(false)
+
+  createdAt DateTime  @default(now())
+  readAt    DateTime?
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId, isRead])
+  @@index([userId, createdAt])
+}
