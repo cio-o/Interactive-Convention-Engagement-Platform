@@ -1,26 +1,27 @@
-
 import { useEffect, useState } from "react";
+import type { Session } from "@supabase/supabase-js";
+import { supabase } from "./lib/supabase";
+import LogIn from "./pages/public/LogIn";
+import BrowseEvents from "./pages/public/BrowseEvents";
 
 function App() {
-  const [message, setMessage] = useState("Connecting...");
+  const [session, setSession] = useState<Session | null>(null);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetch("/api/health")
-      .then((res) => res.json())
-      .then((data) => setMessage(data.message))
-      .catch(() => setMessage("Could not connect to backend."));
+    supabase.auth.getSession().then(({ data }) => {
+      setSession(data.session);
+      setLoading(false);
+    });
+    const { data: sub } = supabase.auth.onAuthStateChange((_event, s) => setSession(s));
+    return () => sub.subscription.unsubscribe();
   }, []);
 
-  return (
-    <main>
-      <h1>Event Platform</h1>
-      <p>{message}</p>
-    </main>
-  );
+  if (loading) return <p>Loading...</p>;
+  return session ? <BrowseEvents /> : <LogIn />;
 }
 
 export default App;
-
 /*
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import Layout from './components/layout/Layout';
